@@ -112,7 +112,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: extension-binaries
-          path: ${{ github.workspace }}
+          path: ${{ github.workspace }}/extension-binaries
 
       - name: Run nbgv
         id: nbgv
