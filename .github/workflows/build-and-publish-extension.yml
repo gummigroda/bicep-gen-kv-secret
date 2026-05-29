@@ -81,6 +81,22 @@ jobs:
           path: ${{ github.workspace }}/artifacts
           retention-days: 7
 
+      - name: Environment
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "::group::Environment"
+          Dir Env:
+          Write-Host "::endgroup::"
+
+          Write-Host "::group::Directories"
+          Get-ChildItem -Path ./ -Recurse -File | Select-Object -ExpandProperty FullName | Sort-Object
+          Write-Host "::endgroup::"
+
+          Write-Host "::group::Pwsh Modules"
+          Get-ChildItem -Path "$Env:HOME/.local/share/powershell/Modules" -Recurse | Select-Object -ExpandProperty FullName | Sort-Object
+          Write-Host "::endgroup::"
+
   publish:
     name: Publish extension package to ACR
     needs: build
@@ -150,3 +166,19 @@ jobs:
             -AcrName "${{ env.ACR_NAME }}" `
             -ExtensionName "${{ env.EXTENSION_NAME }}" `
             -Version "${{ steps.resolveVersion.outputs.extensionVersionResolved }}"
+        
+      - name: Environment
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "::group::Environment"
+          Dir Env:
+          Write-Host "::endgroup::"
+
+          Write-Host "::group::Directories"
+          Get-ChildItem -Path ./ -Recurse -File | Select-Object -ExpandProperty FullName | Sort-Object
+          Write-Host "::endgroup::"
+
+          Write-Host "::group::Pwsh Modules"
+          Get-ChildItem -Path "$Env:HOME/.local/share/powershell/Modules" -Recurse | Select-Object -ExpandProperty FullName | Sort-Object
+          Write-Host "::endgroup::"
