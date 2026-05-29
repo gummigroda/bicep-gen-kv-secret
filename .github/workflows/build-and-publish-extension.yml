@@ -1,0 +1,153 @@
+name: Build and Publish Bicep Extension
+
+on:
+  push:
+    branches:
+      - main
+      - feature/**
+      - fix/**
+    paths:
+      - src/**
+      - scripts/Publish-GenKvSecretExtension.ps1
+      - .github/workflows/build-and-publish-extension.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  DOTNET_VERSION: 10.0.x
+  ACR_NAME: ${{ vars.ACR_NAME || 'azlost' }}
+  EXTENSION_NAME: ${{ vars.EXTENSION_NAME || 'gen-kv-secret' }}
+
+jobs:
+  build:
+    name: Build extension binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        run: dotnet restore src/GenKvSecretExtension.csproj
+
+      - name: Build
+        run: dotnet build src/GenKvSecretExtension.csproj --configuration Release --no-restore
+
+      - name: Publish linux-x64
+        run: >-
+          dotnet publish src/GenKvSecretExtension.csproj
+          --configuration Release
+          --runtime linux-x64
+          --self-contained true
+          --output ${{ github.workspace }}/artifacts/linux-x64
+
+      - name: Publish linux-arm64
+        run: >-
+          dotnet publish src/GenKvSecretExtension.csproj
+          --configuration Release
+          --runtime linux-arm64
+          --self-contained true
+          --output ${{ github.workspace }}/artifacts/linux-arm64
+
+      - name: Publish win-x64
+        run: >-
+          dotnet publish src/GenKvSecretExtension.csproj
+          --configuration Release
+          --runtime win-x64
+          --self-contained true
+          --output ${{ github.workspace }}/artifacts/win-x64
+
+      - name: Publish osx-arm64
+        run: >-
+          dotnet publish src/GenKvSecretExtension.csproj
+          --configuration Release
+          --runtime osx-arm64
+          --self-contained true
+          --output ${{ github.workspace }}/artifacts/osx-arm64
+
+      - name: Upload extension binaries artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-binaries
+          path: ${{ github.workspace }}/artifacts
+          retention-days: 7
+
+  publish:
+    name: Publish extension package to ACR
+    needs: build
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref == 'refs/heads/main' && 'stable' || 'preview' }}
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download extension binaries artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: extension-binaries
+          path: ${{ github.workspace }}
+
+      - name: Run nbgv
+        id: nbgv
+        uses: dotnet/nbgv@v0.4.2
+
+      - name: Resolve extension version
+        id: resolveVersion
+        shell: pwsh
+        run: |
+          $nbgvSimpleVersion = '${{ steps.nbgv.outputs.SimpleVersion }}'
+          $nbgvVersionHeight = '${{ steps.nbgv.outputs.VersionHeight }}'
+
+          if (-not ($nbgvSimpleVersion -match '^\d+\.\d+\.\d+$')) {
+            throw "nbgv SimpleVersion is invalid or missing: '$nbgvSimpleVersion'"
+          }
+
+          $baseVersion = $nbgvSimpleVersion
+          Write-Host "Base version from nbgv: $baseVersion"
+
+          if ($env:GITHUB_REF -eq 'refs/heads/main') {
+            $resolvedVersion = $baseVersion
+            $channel = 'stable'
+          }
+          else {
+            $resolvedVersion = "$baseVersion-preview"
+            $channel = 'preview'
+          }
+
+          Write-Host "Publishing channel: $channel"
+          Write-Host "Resolved extension version: $resolvedVersion"
+          "extensionVersionResolved=$resolvedVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install Bicep
+        run: |
+          az config set bicep.use_binary_from_path=false
+          az bicep install
+          bicep version
+
+      - name: Publish local extension
+        shell: pwsh
+        env:
+          PIPELINE_WORKSPACE: ${{ github.workspace }}
+        run: |
+          ./scripts/Publish-GenKvSecretExtension.ps1 `
+            -AcrName "${{ env.ACR_NAME }}" `
+            -ExtensionName "${{ env.EXTENSION_NAME }}" `
+            -Version "${{ steps.resolveVersion.outputs.extensionVersionResolved }}"

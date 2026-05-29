@@ -1,0 +1,4 @@
+variables:
+  azureServiceConnection: sp-sub-platform-management-bicep-acr
+  acrName: azlost
+  extensionName: gen-kv-secret

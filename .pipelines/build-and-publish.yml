@@ -1,0 +1,158 @@
+name: gen-kv-secret-$(Date:yyyyMMdd).$(Rev:rr)
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - src/**
+      #- version.json
+      #- _pipelines/**
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - template: templates/_common.yml
+
+stages:
+  - stage: Build
+    displayName: Build and test extension
+    jobs:
+      - job: BuildExtension
+        displayName: Build extension binaries
+        steps:
+          # Fetch full git history so Nerdbank.GitVersioning can calculate version height.
+          - checkout: self
+            fetchDepth: 0
+            
+          # Ensure the expected .NET SDK version is available on the agent.
+          - task: UseDotNet@2
+            displayName: Use .NET SDK
+            inputs:
+              version: '10.0.x'
+          # Restore NuGet dependencies required to compile the extension project.
+          - task: DotNetCoreCLI@2
+            displayName: Restore
+            inputs:
+              command: restore
+              projects: src/GenKvSecretExtension.csproj
+          # Compile the extension in Release mode without repeating package restore.
+          - task: DotNetCoreCLI@2
+            displayName: Build
+            inputs:
+              command: build
+              projects: src/GenKvSecretExtension.csproj
+              arguments: --configuration Release --no-restore
+          # Publish a self-contained Linux binary used for extension packaging.
+          - task: DotNetCoreCLI@2
+            displayName: Publish linux-x64
+            inputs:
+              command: publish
+              projects: src/GenKvSecretExtension.csproj
+              publishWebProjects: false
+              zipAfterPublish: false
+              modifyOutputPath: false
+              arguments: --configuration Release --runtime linux-x64 --self-contained true --output $(Build.SourcesDirectory)/artifacts/linux-x64
+          # Publish a self-contained Linux Arm binary used for extension packaging.
+          - task: DotNetCoreCLI@2
+            displayName: Publish linux-arm64
+            inputs:
+              command: publish
+              projects: src/GenKvSecretExtension.csproj
+              publishWebProjects: false
+              zipAfterPublish: false
+              modifyOutputPath: false
+              arguments: --configuration Release --runtime linux-arm64 --self-contained true --output $(Build.SourcesDirectory)/artifacts/linux-arm64
+          # Publish a self-contained Windows binary used for extension packaging.
+          - task: DotNetCoreCLI@2
+            displayName: Publish win-x64
+            inputs:
+              command: publish
+              projects: src/GenKvSecretExtension.csproj
+              publishWebProjects: false
+              zipAfterPublish: false
+              modifyOutputPath: false
+              arguments: --configuration Release --runtime win-x64 --self-contained true --output $(Build.SourcesDirectory)/artifacts/win-x64
+          # Publish a self-contained macOS Arm binary used for extension packaging.
+          - task: DotNetCoreCLI@2
+            displayName: Publish osx-arm64
+            inputs:
+              command: publish
+              projects: src/GenKvSecretExtension.csproj
+              publishWebProjects: false
+              zipAfterPublish: false
+              modifyOutputPath: false
+              arguments: --configuration Release --runtime osx-arm64 --self-contained true --output $(Build.SourcesDirectory)/artifacts/osx-arm64
+          # Store built binaries as a pipeline artifact for the publish stage.
+          - publish: $(Build.SourcesDirectory)/artifacts
+            artifact: extension-binaries
+            displayName: Publish extension binaries artifact
+
+  - stage: PublishExtension
+    displayName: Publish extension package to ACR
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - job: PublishExtension
+        displayName: Publish local extension package
+        steps:
+          # Checkout full history for consistency with version resolution and script access.
+          - checkout: self
+            fetchDepth: 0
+          # Download binaries produced in the Build stage for packaging.
+          - download: current
+            artifact: extension-binaries
+          # Compute stable vs preview version based on the source branch.
+          - task: PowerShell@2
+            displayName: Resolve extension version
+            inputs:
+              targetType: inline
+              pwsh: true
+              script: |
+                $versionFile = "$(Build.SourcesDirectory)/version.json"
+                if (-not (Test-Path $versionFile)) {
+                  throw "Version file not found: $versionFile"
+                }
+
+                $versionConfig = Get-Content -Path $versionFile -Raw | ConvertFrom-Json
+                if (-not $versionConfig.version) {
+                  throw "Missing 'version' field in version.json"
+                }
+
+                $versionParts = $versionConfig.version.ToString().Split('.')
+                if ($versionParts.Count -lt 2 -or $versionParts.Count -gt 3) {
+                  throw "Version '$($versionConfig.version)' must be in 'major.minor' or 'major.minor.patch' format"
+                }
+
+                if ($versionParts.Count -eq 2) {
+                  $baseVersion = "$($versionParts[0]).$($versionParts[1]).0"
+                }
+                else {
+                  $baseVersion = "$($versionParts[0]).$($versionParts[1]).$($versionParts[2])"
+                }
+
+                $sourceBranch = '$(Build.SourceBranch)'
+
+                if ($sourceBranch -eq 'refs/heads/main') {
+                  $resolvedVersion = $baseVersion
+                  $channel = 'stable'
+                }
+                else {
+                  $resolvedVersion = "$baseVersion-preview"
+                  $channel = 'preview'
+                }
+
+                Write-Host "Publishing channel: $channel"
+                Write-Host "Resolved extension version: $resolvedVersion"
+                Write-Host "##vso[task.setvariable variable=extensionVersionResolved]$resolvedVersion"
+          # Publish the extension package to ACR using the resolved version.
+          - task: AzureCLI@2
+            displayName: Publish local extension
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: pscore
+              scriptLocation: scriptPath
+              scriptPath: scripts/Publish-GenKvSecretExtension.ps1
+              arguments: -AcrName $(acrName) -ExtensionName $(extensionName) -Version $(extensionVersionResolved)

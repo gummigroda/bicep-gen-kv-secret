@@ -1,0 +1,16 @@
+{
+  "experimentalFeaturesEnabled": {
+    "localDeploy": true
+  },
+  "moduleAliases": {
+    "br": {
+      "azlost": {
+        "registry": "azlost.azurecr.io"
+        //,"modulePath": "bicep/modules"
+      }
+    }
+  },
+  "extensions": {
+    "genkvsecret": "br:azlost.azurecr.io/extensions/gen-kv-secret:0.2.0-preview"
+  }
+}
