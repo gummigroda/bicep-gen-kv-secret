@@ -140,7 +140,6 @@ jobs:
         run: |
           az config set bicep.use_binary_from_path=false
           az bicep install
-          bicep version
 
       - name: Publish local extension
         shell: pwsh
