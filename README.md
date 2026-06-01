@@ -25,6 +25,7 @@ Optional properties:
 
 - `excludeChars`
 - `allowedSpecialChars`
+- `overwrite` (defaults to `true` when omitted)
 - `secretProperties` object (UDT in the sample template)
 - `secretProperties.Enabled` (defaults to `true` when omitted)
 - `secretProperties.NotBefore` (optional not-before timestamp in ISO 8601)
@@ -58,8 +59,10 @@ Behavior notes:
 - Length is clamped to a minimum of `12`.
 - The sum of minimum character class requirements must not exceed `length`.
 - If exclusions remove all characters from a required class, generation fails.
+- When `overwrite` is `true` (default), the extension generates a new password and writes it to Key Vault, replacing any existing secret.
+- When `overwrite` is `false`, the extension returns the existing secret version and URI without generating or modifying the secret.
 - The extension writes to `https://{keyVaultName}.vault.azure.net/secrets/{secretName}`.
-- If the Key Vault write fails, local deploy fails.
+- If the Key Vault operation fails, local deploy fails.
 - Plaintext password is never returned in outputs.
 
 ## Prerequisites
