@@ -11,6 +11,6 @@
     }
   },
   "extensions": {
-    "genkvsecret": "br:azlost.azurecr.io/extensions/gen-kv-secret:0.2.6-preview"
+    "genkvsecret": "br:azlost.azurecr.io/extensions/gen-kv-secret:0.3.0"
   }
 }
