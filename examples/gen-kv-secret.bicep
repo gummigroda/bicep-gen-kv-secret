@@ -1,5 +1,5 @@
-metadata name = 'gen-kv-secret-consumer-sample'
-metadata description = 'Minimal local-deploy example that generates one password and stores it directly in Key Vault.'
+metadata name = 'Generate Key Vault Secret'
+metadata description = 'Generate a random password and store it in an Azure Key Vault secret. This module uses the gen-kv-secret local extension to create or update a secret with the generated password value and specified properties.'
 
 targetScope = 'local'
 
@@ -40,26 +40,25 @@ param minDigits int = 2
 param minSpecial int = 2
 
 @description('Optional characters to exclude from all sets (for example: O0Il).')
-param excludeChars string = ''
+param excludeChars string = 'oO0lI,./'
 
 @description('Optional explicit set of allowed special characters.')
 param allowedSpecialChars string = ''
 
-@description('Optional Key Vault properties object aligned to Azure .NET SDK naming for secret attributes.')
+@description('Optional Key Vault properties object.')
 #disable-next-line secure-secrets-in-params 
 param secretProperties secretPropertiesType = {
   Enabled: true
 }
 
+@description('Whether to overwrite the existing secret. Set to false to keep the existing secret and return its URI and version without changes.')
+param overwrite bool = true
+
 /// VARIABLES ///
-var hasAllowedSpecialChars = !empty(allowedSpecialChars)
-var hasExcludeChars = !empty(excludeChars)
-var hasSecretNotBefore = !empty(secretProperties.?NotBefore ?? '')
-var hasSecretExpiresOn = !empty(secretProperties.?ExpiresOn ?? '')
-var hasSecretContentType = !empty(secretProperties.?ContentType ?? '')
+
 
 /// RESOURCES ///
-resource generatedPassword 'Generate-KV-Secret' = {
+resource generatedSecret 'Generate-KV-Secret' = {
   id: generatorId
   length: length
   minUpper: minUpper
@@ -68,22 +67,23 @@ resource generatedPassword 'Generate-KV-Secret' = {
   minSpecial: minSpecial
   keyVaultName: keyVaultName
   secretName: secretName
-  excludeChars: hasExcludeChars ? excludeChars : null
-  allowedSpecialChars: hasAllowedSpecialChars ? allowedSpecialChars : null
+  excludeChars: excludeChars
+  allowedSpecialChars: allowedSpecialChars
   secretProperties: {
     enabled: secretProperties.?Enabled ?? true
-    notBefore: hasSecretNotBefore ? secretProperties.?NotBefore : null
-    expiresOn: hasSecretExpiresOn ? secretProperties.?ExpiresOn : null
-    contentType: hasSecretContentType ? secretProperties.?ContentType : null
+    notBefore: secretProperties.?NotBefore
+    expiresOn: secretProperties.?ExpiresOn
+    contentType: secretProperties.?ContentType
   }
+  overwrite: overwrite
 }
 
 /// OUTPUTS ///
 @description('Secret URI written by the local extension.')
-output secretUri string = generatedPassword.secretUri!
+output secretUri string = generatedSecret.secretUri!
 
 @description('Secret version written by the local extension.')
-output secretVersion string = generatedPassword.secretVersion!
+output secretVersion string = generatedSecret.secretVersion!
 
 /// DEFINITIONS ///
 @description('Optional Key Vault secret properties aligned with Azure .NET SDK naming.')

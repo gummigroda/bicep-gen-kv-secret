@@ -57,6 +57,9 @@ public class PasswordResource : PasswordResourceIdentifiers
     [TypeProperty("Optional secret properties aligned with Azure .NET SDK naming.", ObjectTypePropertyFlags.None)]
     public SecretPropertiesInput? SecretProperties { get; set; }
 
+    [TypeProperty("Whether to overwrite an existing secret in Key Vault. If false, returns the existing secret version and URI. Defaults to true.", ObjectTypePropertyFlags.None)]
+    public bool Overwrite { get; set; } = true;
+
     [TypeProperty("Generated password value. Always null in Key Vault write mode.", ObjectTypePropertyFlags.ReadOnly)]
     public string? Value { get; set; }
 

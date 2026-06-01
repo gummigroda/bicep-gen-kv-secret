@@ -30,12 +30,22 @@ public class PasswordHandler : TypedResourceHandler<PasswordResource, PasswordRe
     protected override async Task<ResourceResponse> CreateOrUpdate(ResourceRequest request, CancellationToken cancellationToken)
     {
         ValidatePolicy(request.Properties);
-        var generatedPassword = GeneratePassword(request.Properties);
-        var setSecretResponse = await SetSecretInKeyVault(request.Properties, generatedPassword, cancellationToken);
+
+        Response<KeyVaultSecret> secretResponse;
+
+        if (request.Properties.Overwrite)
+        {
+            var generatedPassword = GeneratePassword(request.Properties);
+            secretResponse = await SetSecretInKeyVault(request.Properties, generatedPassword, cancellationToken);
+        }
+        else
+        {
+            secretResponse = await GetExistingSecret(request.Properties, cancellationToken);
+        }
 
         request.Properties.Value = null;
-        request.Properties.SecretUri = setSecretResponse.Value.Id.AbsoluteUri;
-        request.Properties.SecretVersion = setSecretResponse.Value.Properties.Version;
+        request.Properties.SecretUri = secretResponse.Value.Id.AbsoluteUri;
+        request.Properties.SecretVersion = secretResponse.Value.Properties.Version;
 
         return GetResponse(request);
     }
@@ -109,6 +119,24 @@ public class PasswordHandler : TypedResourceHandler<PasswordResource, PasswordRe
         {
             throw new InvalidOperationException(
                 $"Failed to write secret '{resource.SecretName}' to Key Vault '{resource.KeyVaultName}'. " +
+                $"Status: {exception.Status}. ErrorCode: {exception.ErrorCode}. Message: {exception.Message}",
+                exception);
+        }
+    }
+
+    private static async Task<Response<KeyVaultSecret>> GetExistingSecret(PasswordResource resource, CancellationToken cancellationToken)
+    {
+        var vaultUri = new Uri($"https://{resource.KeyVaultName}.vault.azure.net/");
+        var client = new SecretClient(vaultUri, Credential);
+
+        try
+        {
+            return await client.GetSecretAsync(resource.SecretName, cancellationToken: cancellationToken);
+        }
+        catch (RequestFailedException exception)
+        {
+            throw new InvalidOperationException(
+                $"Failed to retrieve secret '{resource.SecretName}' from Key Vault '{resource.KeyVaultName}'. " +
                 $"Status: {exception.Status}. ErrorCode: {exception.ErrorCode}. Message: {exception.Message}",
                 exception);
         }
